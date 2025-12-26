@@ -5,6 +5,7 @@ const API_BASE_URL = "http://localhost:8000/api";
 
 const api = axios.create({
     baseURL: API_BASE_URL,
+    timeout: 10000, // 10 seconds
 })
 
 // Debug: log the baseURL being used

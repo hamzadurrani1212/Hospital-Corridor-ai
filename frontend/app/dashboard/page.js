@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import ProtectedRoute from "../../components/common/ProtectedRoute";
 import StatCard from "../../components/cards/StatCard";
 import CameraCard from "../../components/cards/CameraCard";
-import AlertsTable from "../../components/tables/AlertsTable";
+import AlertsTable from "../../components/tables/AlertTable";
 import Sidebar from "../../components/layout/Sidebar";
+import useSocket from "../../hooks/useSocket";
 import { toast } from "react-toastify";
 
 import {
@@ -22,101 +23,131 @@ export default function DashboardPage() {
     cameras: 0,
     alerts: 0,
     people: 0,
+    crowdCount: 0,
     system: { status: "OK" },
   });
   const [alerts, setAlerts] = useState([]);
   const [streams, setStreams] = useState([]);
-  const [prevAlertIds, setPrevAlertIds] = useState(new Set());
 
-  // 🔔 Play alert sound
+  //  Play alert sound
   const playSound = useCallback(() => {
-    const audio = new Audio("/sounds/alert.mp3"); // make sure alert.mp3 is in /public/sounds/
-    audio.play();
+    const audio = new Audio("/sounds/alert.mp3");
+    audio.play().catch(e => console.log("Audio play blocked"));
   }, []);
 
-  // 🔄 Fetch dashboard data
-  const fetchData = useCallback(async () => {
-    const [cameras, alertsCount, people, system, recentAlerts, cameraStreams] =
-      await Promise.all([
+  //  Handle Real-time WebSocket Messages
+  const handleSocketMessage = useCallback((data) => {
+    console.log("WebSocket Alert Received:", data);
+
+    // Add new alert to the top of the list
+    setAlerts(prev => {
+      // Check if alert already exists to prevent duplicates
+      if (prev.some(a => a.id === data.id)) return prev;
+
+      const updated = [data, ...prev].slice(0, 50); // Keep last 50
+      return updated;
+    });
+
+    // Update alert count stat
+    setStats(prev => ({
+      ...prev,
+      alerts: prev.alerts + 1
+    }));
+
+    // Notify user
+    toast.error(`${data.type}: ${data.title || "Security Alert"}`, {
+      autoClose: 7000,
+      position: "top-right"
+    });
+
+    playSound();
+  }, [playSound]);
+
+  // Connect to WebSocket
+  useSocket(handleSocketMessage);
+
+  //  Initial metadata fetch & periodic sync for stats
+  const fetchMetadata = useCallback(async () => {
+    try {
+      const [cameras, alertsCount, people, system, cameraStreams, recentAlerts] = await Promise.all([
         getActiveCameras(),
         getActiveAlerts(),
         getPeopleDetected(),
         getSystemHealth(),
-        getRecentAlerts(),
         getCameraStreams(),
+        getRecentAlerts()
       ]);
 
-    setStats({ cameras, alerts: alertsCount, people, system });
-    setStreams(cameraStreams);
+      // Extract crowd count from processor stats
+      const crowdCount = system?.processor_stats?.crowd_count || 0;
 
-    // 🚨 Detect new alerts and notify
-    const newAlerts = recentAlerts.filter((a) => !prevAlertIds.has(a.id));
-    if (newAlerts.length > 0) {
-      newAlerts.forEach((alert) => {
-        toast.error(`${alert.type} detected on ${alert.camera}`, {
-          autoClose: 7000,
-        });
-        playSound();
-      });
-      setPrevAlertIds(new Set(recentAlerts.map((a) => a.id)));
+      setStats({ cameras, alerts: alertsCount, people, crowdCount, system });
+      setStreams(cameraStreams);
+      setAlerts(recentAlerts);
+    } catch (error) {
+      console.error("Failed to fetch dashboard metadata:", error);
     }
+  }, []);
 
-    setAlerts(recentAlerts);
-  }, [prevAlertIds, playSound]);
-
-  // ⏱ Fetch every 5 seconds
   useEffect(() => {
-    // Initial fetch
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
+    fetchMetadata();
+    // Sync heavy stats less frequently (e.g. every 10s) 
+    // real-time alerts are handled by WebSocket
+    const interval = setInterval(fetchMetadata, 10000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchMetadata]);
+
+  // Memoize components to prevent jitter
+  const memoizedStreams = useMemo(() => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {streams.map((cam, idx) => (
+        <CameraCard key={cam.id || idx} title={cam.title} streamUrl={cam.url} />
+      ))}
+    </div>
+  ), [streams]);
+
+  const memoizedAlertsTable = useMemo(() => (
+    <AlertsTable alerts={alerts} />
+  ), [alerts]);
 
   return (
     <ProtectedRoute roles={["admin", "operator"]}>
-      <div className="flex min-h-screen bg-gray-100">
+      <div className="flex min-h-screen bg-gray-50">
         <Sidebar />
-        <main className="flex-1 p-4 md:p-6 lg:p-8 space-y-6">
+        <main className="flex-1 p-6 md:p-8 lg:p-10 space-y-8 max-w-7xl mx-auto">
+          {/* Header Area */}
+          <div className="flex justify-between items-end">
+            <div>
+              <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">System Dashboard</h1>
+              <p className="text-gray-500 mt-1">Real-time corridor safety monitoring</p>
+            </div>
+            <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold flex items-center gap-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+              Live Connection: Active
+            </div>
+          </div>
+
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard
-              title="Active Cameras"
-              value={stats.cameras}
-              status="normal"
-            />
-            <StatCard
-              title="Active Alerts"
-              value={stats.alerts}
-              status={stats.alerts > 5 ? "critical" : "normal"}
-            />
-            <StatCard
-              title="People Detected"
-              value={stats.people}
-              status={stats.people > 50 ? "warning" : "normal"}
-            />
-            <StatCard
-              title="System Health"
-              value={stats.system.status}
-              status={stats.system.status === "OK" ? "normal" : "critical"}
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+            <StatCard title="Active Cameras" value={stats.cameras} status="normal" />
+            <StatCard title="Total Alerts" value={stats.alerts} status={stats.alerts > 10 ? "critical" : "normal"} />
+            <StatCard title="People Detected" value={stats.people} status={stats.people > 20 ? "warning" : "normal"} />
+            <StatCard title="Crowd Count" value={stats.crowdCount} status={stats.crowdCount >= 3 ? "warning" : "normal"} />
+            <StatCard title="System Status" value={stats.system.status} status={stats.system.status === "OK" ? "normal" : "critical"} />
           </div>
 
-          {/* Live Camera Feeds */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {streams.map((cam, idx) => (
-              <CameraCard key={idx} title={cam.title} streamUrl={cam.url} />
-            ))}
+          {/* Visualization Section */}
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold text-gray-800">Live Video Surveillance</h2>
+            {memoizedStreams}
           </div>
 
-          {/* Recent Alerts Table */}
-          <AlertsTable alerts={alerts} />
+          {/* Event Logs */}
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold text-gray-800">Threat Assessment & Logs</h2>
+            {memoizedAlertsTable}
+          </div>
         </main>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {streams.map((cam, idx) => (
-            <CameraCard key={idx} title={cam.title} streamUrl={cam.url} />
-          ))}
-        </div>
       </div>
     </ProtectedRoute>
   );

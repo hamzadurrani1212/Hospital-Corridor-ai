@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { FiSearch, FiChevronDown, FiUpload, FiUser, FiMoreVertical, FiX, FiImage } from "react-icons/fi";
 
 // Mock Data

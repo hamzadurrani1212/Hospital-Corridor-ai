@@ -1,0 +1,16 @@
+{
+    "timestamp": "2025-12-24T18:41:52.639502",
+    "operational_stats": {
+        "persons_detected": 1,
+        "vehicles_detected": 0,
+        "alerts_generated": 1,
+        "authorized_count": 1,
+        "unauthorized_count": 0,
+        "crowd_count": 1,
+        "crowd_status": "normal"
+    },
+    "performance": {
+        "avg_processing_time": 0.4601863556438022,
+        "frame_count": 37
+    }
+}

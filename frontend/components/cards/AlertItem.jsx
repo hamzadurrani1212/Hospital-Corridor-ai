@@ -1,4 +1,6 @@
 import { FiClock, FiMapPin, FiChevronRight } from "react-icons/fi";
+import VehicleAlertItem from "./VehicleAlertItem";
+import AggressionAlertItem from "./AggressionAlertItem";
 
 const SEVERITY_CONFIG = {
     critical: {
@@ -19,14 +21,57 @@ const SEVERITY_CONFIG = {
 };
 
 export default function AlertItem({
+    id,
+    type,
     severity = "info",
     title,
     description,
     location,
     time,
     isAcknowledged = false,
-    snapshot
+    snapshot,
+    onAcknowledge,
+    ...rest
 }) {
+    // 1. Vehicle Alerts Routing
+    if (type?.startsWith("VEHICLE_") || type?.includes("PARKING")) {
+        return (
+            <VehicleAlertItem
+                id={id}
+                vehicleType={rest.vehicle_type || "Vehicle"}
+                plateNumber={rest.plate_number || "REQ-SCAN"}
+                status={type === "UNAUTHORIZED_PARKING" ? "unauthorized" : rest.status || "moving"}
+                location={location}
+                camera={rest.camera || "CAM01"}
+                time={time}
+                severity={severity}
+                snapshot={snapshot}
+                isAcknowledged={isAcknowledged}
+                onAcknowledge={onAcknowledge}
+            />
+        );
+    }
+
+    // 2. Aggression Alerts Routing
+    if (type === "AGGRESSIVE_BEHAVIOR") {
+        return (
+            <AggressionAlertItem
+                id={id}
+                type={title}
+                severity={severity}
+                description={description}
+                location={location}
+                personCount={rest.behavior_data?.person_count || 2}
+                camera={rest.camera || "CAM-SEC"}
+                time={time}
+                snapshot={snapshot}
+                isAcknowledged={isAcknowledged}
+                onAcknowledge={onAcknowledge}
+            />
+        );
+    }
+
+    // 3. Fallback for Standard Alerts (Loitering, Restricted Area, etc.)
     const config = SEVERITY_CONFIG[severity] || SEVERITY_CONFIG.info;
 
     return (
@@ -37,6 +82,11 @@ export default function AlertItem({
                         <span className={`text-xs font-bold uppercase tracking-wider ${config.color}`}>
                             {config.label}
                         </span>
+                        {(type === "AGGRESSIVE_BEHAVIOR" || type === "FIGHT_DETECTED" || type?.startsWith("VEHICLE")) && (
+                            <span className="bg-rose-500/20 text-rose-500 text-[10px] font-black uppercase px-2 py-0.5 rounded-full border border-rose-500/30 animate-pulse">
+                                Priority
+                            </span>
+                        )}
                         {isAcknowledged && (
                             <span className="text-xs text-slate-500 flex items-center gap-1">
                                 • Acknowledged
@@ -44,9 +94,16 @@ export default function AlertItem({
                         )}
                     </div>
 
-                    <h4 className="text-white font-medium mb-1 group-hover:text-accent transition-colors">
-                        {title}
-                    </h4>
+                    <div className="flex items-center gap-2 mb-1">
+                        <h4 className="text-white font-medium group-hover:text-accent transition-colors">
+                            {title}
+                        </h4>
+                        {rest.person_role && rest.person_role !== "Unknown" && (
+                            <span className="bg-slate-700/50 text-slate-300 text-[10px] px-1.5 py-0.5 rounded border border-slate-600">
+                                {rest.person_role}
+                            </span>
+                        )}
+                    </div>
 
                     <p className="text-slate-400 text-sm mb-3 line-clamp-2">
                         {description}
@@ -75,8 +132,18 @@ export default function AlertItem({
                     )}
                 </div>
 
-                <div className="ml-4 text-slate-600 group-hover:text-white transition-colors self-center">
-                    <FiChevronRight size={20} />
+                <div className="ml-4 flex flex-col gap-2 self-center">
+                    {!isAcknowledged && onAcknowledge && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onAcknowledge(); }}
+                            className="bg-accent/10 border border-accent/30 text-accent text-[10px] font-bold uppercase py-1 px-3 rounded hover:bg-accent hover:text-white transition-all whitespace-nowrap"
+                        >
+                            Acknowledge
+                        </button>
+                    )}
+                    <div className="text-slate-600 group-hover:text-white transition-colors self-center">
+                        <FiChevronRight size={20} />
+                    </div>
                 </div>
             </div>
         </div>

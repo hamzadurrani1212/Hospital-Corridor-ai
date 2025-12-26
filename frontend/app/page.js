@@ -20,8 +20,11 @@ export default function Dashboard() {
     activeAlerts: 0,
     activeCameras: 0,
     peopleDetected: 0,
+    crowdCount: 0,
+    crowdStatus: "normal",
   });
   const [loading, setLoading] = useState(true);
+  const [priorityAlert, setPriorityAlert] = useState(null);
   const wsRef = useRef(null);
 
   // Fetch initial data
@@ -32,12 +35,23 @@ export default function Dashboard() {
 
         // Fetch stats
         const dashStats = await getDashboardStats();
+
+        // Update basic counts
         setStats({
-          activeAlerts: dashStats.activeAlerts,
-          activeCameras: dashStats.activeCameras,
-          peopleDetected: dashStats.peopleDetected,
+          activeAlerts: dashStats.activeAlerts || 0,
+          activeCameras: dashStats.activeCameras || 0,
+          peopleDetected: dashStats.peopleDetected || 0,
+          crowdCount: dashStats.crowdCount || 0,
+          crowdStatus: dashStats.crowdStatus || "normal",
         });
-        setIsCameraOn(dashStats.activeCameras > 0);
+
+        // Ensure camera UI is ON if either:
+        // 1. Backend says cameras are active
+        // 2. System health says the processor is running
+        const isActuallyRunning = (dashStats.activeCameras > 0) ||
+          (dashStats.health && dashStats.health.processor === "running");
+
+        setIsCameraOn(isActuallyRunning);
 
         // Fetch recent alerts
         const recentAlerts = await getRecentAlerts(10);
@@ -50,6 +64,11 @@ export default function Dashboard() {
     };
 
     fetchData();
+
+    // Refresh dashboard every 3 seconds for a smoother "auto-start" experience
+    const statsInterval = setInterval(fetchData, 3000);
+
+    return () => clearInterval(statsInterval);
   }, []);
 
   // WebSocket connection for real-time alerts
@@ -71,17 +90,24 @@ export default function Dashboard() {
 
             // Add new alert to the list
             const newAlert = {
+              ...data,
               id: data.id,
               severity: data.severity || "warning",
               title: data.title || data.type,
               description: data.description || "",
-              location: data.location || "Unknown",
+              location: data.location || data.camera || "Unknown",
               time: "Just now",
               acknowledged: false,
               snapshot: data.snapshot,
             };
 
             setAlerts((prev) => [newAlert, ...prev.slice(0, 9)]);
+
+            // Handle Priority Alerts Overlay
+            if (data.type === "AGGRESSIVE_BEHAVIOR" || data.type === "FIGHT_DETECTED" || (data.severity === "critical" && data.type?.includes("VEHICLE"))) {
+              setPriorityAlert(newAlert);
+              setTimeout(() => setPriorityAlert(null), 8000); // Show for 8 seconds
+            }
 
             // Update active alerts count
             setStats((prev) => ({
@@ -116,6 +142,21 @@ export default function Dashboard() {
     };
   }, []);
 
+  const handleAcknowledge = async (id) => {
+    try {
+      await api.post(`/alerts/${id}/acknowledge`);
+      setAlerts((prev) =>
+        prev.map((a) => a.id === id ? { ...a, status: "acknowledged", acknowledged: true } : a)
+      );
+      setStats((prev) => ({
+        ...prev,
+        activeAlerts: Math.max(0, prev.activeAlerts - 1),
+      }));
+    } catch (err) {
+      console.error("Failed to acknowledge alert:", err);
+    }
+  };
+
   const toggleCamera = async () => {
     const newState = !isCameraOn;
     try {
@@ -140,6 +181,8 @@ export default function Dashboard() {
         activeAlerts: dashStats.activeAlerts,
         activeCameras: dashStats.activeCameras,
         peopleDetected: dashStats.peopleDetected,
+        crowdCount: dashStats.crowdCount,
+        crowdStatus: dashStats.crowdStatus,
       });
     } catch (error) {
       console.error("Failed to refresh data:", error);
@@ -191,14 +234,20 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           title="Active Alerts"
           value={loading ? "..." : stats.activeAlerts.toString()}
           subtext={stats.activeAlerts > 0 ? "Requires attention" : "All clear"}
           type={stats.activeAlerts > 0 ? "negative" : "positive"}
           headerAction={<FiAlertTriangle className={stats.activeAlerts > 0 ? "text-rose-400" : "text-slate-500"} />}
+        />
+        <StatCard
+          title="Live Crowd Size"
+          value={loading ? "..." : stats.crowdCount.toString()}
+          subtext={stats.crowdStatus === "crowded" ? "High Volume" : "Normal Flow"}
+          type={stats.crowdStatus === "crowded" ? "negative" : "positive"}
+          headerAction={<FiUser className={stats.crowdStatus === "crowded" ? "text-rose-400" : "text-emerald-400"} />}
         />
         <StatCard
           title="Cameras Online"
@@ -208,9 +257,9 @@ export default function Dashboard() {
           headerAction={<FiCamera className={isCameraOn ? "text-accent" : "text-slate-600"} />}
         />
         <StatCard
-          title="People Detected Today"
+          title="Detected Today"
           value={loading ? "..." : stats.peopleDetected.toString()}
-          subtext="Unique detections"
+          subtext="Total unique people"
           type="positive"
           headerAction={<FiActivity className="text-emerald-400" />}
         />
@@ -244,11 +293,33 @@ export default function Dashboard() {
 
           <div className="flex-1 bg-black flex items-center justify-center text-slate-600 overflow-hidden relative">
             {isCameraOn ? (
-              <img
-                src={`${API_BASE}/api/stream/0`}
-                alt="Live Stream"
-                className="w-full h-full object-cover"
-              />
+              <>
+                <img
+                  src={`${API_BASE}/api/stream/0`}
+                  alt="Live Stream"
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Priority Alert Overlay */}
+                {priorityAlert && (
+                  <div className="absolute inset-0 flex items-center justify-center z-20 overflow-hidden">
+                    <div className="absolute inset-0 border-[12px] border-rose-600 animate-pulse pointer-events-none"></div>
+                    <div className="bg-rose-600/90 backdrop-blur-xl px-8 py-6 rounded-2xl border-2 border-white/20 shadow-[0_0_50px_rgba(225,29,72,0.6)] animate-in zoom-in duration-300 flex flex-col items-center max-w-md text-center">
+                      <FiAlertTriangle size={64} className="text-white mb-4 animate-bounce" />
+                      <h2 className="text-white text-3xl font-black uppercase tracking-tighter mb-2">
+                        {priorityAlert.title}
+                      </h2>
+                      <p className="text-white/90 font-medium text-lg leading-tight">
+                        {priorityAlert.description}
+                      </p>
+                      <div className="mt-6 flex items-center gap-3 bg-black/30 px-4 py-2 rounded-full border border-white/10 uppercase text-xs font-bold text-white tracking-widest">
+                        <span className="w-2 h-2 bg-white rounded-full animate-ping"></span>
+                        Security Response Required
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="text-center">
                 <FiCamera size={48} className="mx-auto mb-4 text-slate-700" />
@@ -294,12 +365,9 @@ export default function Dashboard() {
               alerts.map((alert) => (
                 <AlertItem
                   key={alert.id}
-                  severity={alert.severity}
-                  title={alert.title}
-                  description={alert.description}
-                  location={alert.location || alert.camera}
-                  time={alert.time}
+                  {...alert}
                   isAcknowledged={alert.status === "acknowledged" || alert.acknowledged}
+                  onAcknowledge={() => handleAcknowledge(alert.id)}
                 />
               ))
             )}

@@ -104,7 +104,9 @@ export const getDashboardStats = async () => {
       activeCameras,
       activeAlerts,
       peopleDetected,
-      health
+      health,
+      crowdCount: health?.processor_stats?.crowd_count || 0,
+      crowdStatus: health?.processor_stats?.crowd_status || "normal"
     };
   } catch (error) {
     console.error("Failed to get dashboard stats:", error);
@@ -112,6 +114,8 @@ export const getDashboardStats = async () => {
       activeCameras: 0,
       activeAlerts: 0,
       peopleDetected: 0,
+      crowdCount: 0,
+      crowdStatus: "normal",
       health: { status: "error" }
     };
   }
