@@ -5,19 +5,24 @@ import api from "./api";
  */
 
 /**
- * Register a new authorized staff member
+ * Register a new authorized staff member with 3 angles
  * @param {Object} staffData - Staff registration data
  * @param {string} staffData.name - Staff member name
  * @param {string} staffData.role - Role (Doctor, Nurse, Security, etc.)
  * @param {string} staffData.department - Department name
- * @param {File} staffData.image - Staff member image file
+ * @param {File} staffData.frontImage - Front face image (Required)
+ * @param {File} staffData.leftImage - Left profile image (Optional)
+ * @param {File} staffData.rightImage - Right profile image (Optional)
  */
-export const registerStaff = async ({ name, role, department, image }) => {
+export const registerStaff = async ({ name, role, department, frontImage, leftImage, rightImage }) => {
     const formData = new FormData();
     formData.append("name", name);
     formData.append("role", role);
     formData.append("department", department);
-    formData.append("image", image);
+
+    if (frontImage) formData.append("front_image", frontImage);
+    if (leftImage) formData.append("left_image", leftImage);
+    if (rightImage) formData.append("right_image", rightImage);
 
     const res = await api.post("/staff/register", formData, {
         headers: {

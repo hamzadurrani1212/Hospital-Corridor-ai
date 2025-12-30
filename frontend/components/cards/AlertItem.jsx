@@ -34,7 +34,7 @@ export default function AlertItem({
     ...rest
 }) {
     // 1. Vehicle Alerts Routing
-    if (type?.startsWith("VEHICLE_") || type?.includes("PARKING")) {
+    if (type?.startsWith("VEHICLE_") || type?.includes("PARKING") || type?.includes("VEHICLE") || type?.includes("SPEED")) {
         return (
             <VehicleAlertItem
                 id={id}

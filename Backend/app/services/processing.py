@@ -24,7 +24,8 @@ from app.utils.preprocessing import preprocess_for_yolo
 from app.models.pose_detector import PoseDetector
 from app.broadcast import broadcaster
 from app.models.clip_embedder import embedder
-from app.db.qdrant_client import search_staff
+from app.db.qdrant_client import search_staff, search_staff_hybrid
+from app.services.face_service import face_service
 from app.services.event_engine import event_engine
 from app.services.alerts_store import alert_store
 from app.services.stats_service import stats_service
@@ -46,15 +47,15 @@ os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
 # COCO Class IDs
 PERSON_CLASS_ID = 0
-VEHICLE_CLASS_IDS = {2, 3, 5, 7, 9}  # car, bike, bus, truck, ambulance
+VEHICLE_CLASS_IDS = {1, 2, 3, 5, 7, 9}  # bicycle, car, bike, bus, truck, ambulance
 # Detection thresholds
 PERSON_CONF_THRESHOLD = 0.5
-VEHICLE_CONF_THRESHOLD = 0.5
+VEHICLE_CONF_THRESHOLD = 0.35
 
 # Timing constants
 BEHAVIOR_CHECK_INTERVAL = 0.2
 AUTH_CHECK_INTERVAL = 1.0  # seconds between auth checks
-RE_AUTH_INTERVAL = 10.0    # seconds for re-authorization
+RE_AUTH_INTERVAL = 3.0    # Reduced from 10.0 for faster DB sync reactivity
 
 # Alert cooldowns (seconds)
 ALERT_COOLDOWN_PERSON = 30.0
@@ -71,44 +72,76 @@ HOSPITAL_ZONES = {
 # -----------------------------------
 # AUTHORIZATION FUNCTIONS
 # -----------------------------------
-def authorize_person(embedding: np.ndarray) -> Dict[str, Any]:
+
+# PRODUCTION THRESHOLDS - Set higher to prevent false positives
+# ArcFace: 0.55+ for reliable match (0.70+ is very confident)
+# CLIP: 0.90+ for reliable match (not a face model, general similarity)
+ARCFACE_AUTH_THRESHOLD = 0.55
+CLIP_AUTH_THRESHOLD = 0.90
+
+def authorize_person_hybrid(clip_embedding: np.ndarray, arcface_embedding: Optional[np.ndarray] = None) -> Dict[str, Any]:
     """
-    Check if a person is authorized staff.
-    
-    Returns authorized status with name/role only if person matches DB with high confidence.
-    Otherwise returns generic 'Unauthorized' label without exposing other staff info.
+    Check if a person is authorized using hybrid identification (CLIP retrieval + ArcFace verification).
+    Uses strict thresholds to prevent false positive matches.
     """
-    match = search_staff(embedding)
+    results = search_staff_hybrid(clip_embedding, arcface_embedding, limit=5)
     
-    # No match at all (empty DB or error)
-    if match is None:
+    if not results:
         return {
             "authorized": False,
-            "person": None,
             "score": 0,
             "name": "Unauthorized",
             "role": None,
             "department": None
         }
     
-    score = match.get("score", 0)
+    top = results[0]
     
-    # Check if this is an authorized match (score >= threshold)
-    if match.get("authorized") and match.get("name"):
+    arcface_score = top.get("arcface_score", 0)
+    clip_score = top.get("clip_score", 0)
+    
+    is_authorized = False
+    final_score = clip_score
+    match_method = "none"
+    
+    # STRICT AUTHORIZATION LOGIC:
+    # 1. If we have ArcFace embedding, use it as PRIMARY verification
+    # 2. Require high threshold to prevent false positives
+    # 3. Also check that CLIP score is reasonable (basic sanity check)
+    
+    if arcface_embedding is not None and arcface_score > 0:
+        # We have face embedding - use strict ArcFace verification
+        if arcface_score >= ARCFACE_AUTH_THRESHOLD:
+            # Additional sanity check: CLIP shouldn't be too low
+            if clip_score >= 0.75:  # Basic sanity threshold
+                is_authorized = True
+                final_score = arcface_score
+                match_method = "arcface"
+    else:
+        # No face detected (profile/occluded) - use CLIP with VERY strict threshold
+        if clip_score >= CLIP_AUTH_THRESHOLD:
+            is_authorized = True
+            final_score = clip_score
+            match_method = "clip"
+    
+    # Log for debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Auth check: clip={clip_score:.3f}, arcface={arcface_score:.3f}, "
+                 f"method={match_method}, authorized={is_authorized}")
+
+    if is_authorized and top.get("authorized"):
         return {
             "authorized": True,
-            "person": match,
-            "score": score,
-            "name": match.get("name", "Staff"),
-            "role": match.get("role", "Employee"),
-            "department": match.get("department", "Hospital")
+            "score": final_score,
+            "name": top.get("name", "Staff"),
+            "role": top.get("role", "Employee"),
+            "department": top.get("department", "Hospital")
         }
     
-    # Not authorized - DO NOT show any other person's info
     return {
         "authorized": False,
-        "person": None,  # Don't expose match details
-        "score": score,
+        "score": final_score,
         "name": "Unauthorized",
         "role": None,
         "department": None
@@ -274,10 +307,10 @@ class ProcessingService:
                 self.pose = await asyncio.to_thread(PoseDetector)
             
             # Start camera stream
-            logger.info(f"📹 Starting camera stream from: {camera_stream.src}")
+            logger.info(f" Starting camera stream from: {camera_stream.src}")
             camera_stream.start()
             
-            logger.info("✅ Models loaded and camera started. Entering main loop.")
+            logger.info(" Models loaded and camera started. Entering main loop.")
             await self._main_loop()
             
         except Exception as e:
@@ -296,7 +329,7 @@ class ProcessingService:
         # Save statistics
         self._save_statistics()
         
-        logger.info("⏹️ Processing service stopped")
+        logger.info(" Processing service stopped")
     
     # -----------------------------------
     # MAIN PROCESSING LOOP
@@ -574,27 +607,41 @@ class ProcessingService:
             return  # Too small for reliable identification
         
         try:
-            # Convert to PIL Image and get embedding
+            # Step 1: CLIP embedding for retrieval
             pil_image = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
-            embedding = await asyncio.to_thread(embedder.image_embedding, pil_image)
+            clip_embedding = await asyncio.to_thread(embedder.image_embedding, pil_image)
             
-            # Check against staff database (Offload to thread)
-            auth_result = await asyncio.to_thread(authorize_person, embedding)
+            # Step 2: ArcFace embedding for high-precision verification
+            face_details = await asyncio.to_thread(face_service.get_face_details, crop)
+            
+            # IMPORTANT: Only use ArcFace embedding if it's from real InsightFace, not fallback
+            arcface_embedding = None
+            if face_details and not face_details.get("fallback", False):
+                # Real ArcFace embedding from InsightFace
+                arcface_embedding = face_details["embedding"]
+            elif face_details and face_details.get("fallback", False):
+                # Fallback embedding (OpenCV histogram) - DO NOT use for authorization
+                # These give unreliable matches
+                logger.debug(f"Person {person['id']}: Using fallback face detection - skipping ArcFace")
+            
+            # Step 3: Hybrid search and verification (Offload to thread)
+            auth_result = await asyncio.to_thread(authorize_person_hybrid, clip_embedding, arcface_embedding)
             
             # Update person state
             previous_status = person["authorized"]
             person["authorized"] = auth_result["authorized"]
-            person["embedding"] = embedding
+            person["embedding"] = clip_embedding
             person["auth_score"] = auth_result.get("score", 0)
             
             if auth_result["authorized"]:
-                person["name"] = auth_result["name"]
+                # Format: Authorized Name Role
+                person["name"] = f"{auth_result['name']} ({auth_result['role']})"
                 person["role"] = auth_result["role"]
                 person["department"] = auth_result.get("department")
                 
                 # Log authorization event
                 if previous_status is not True:
-                    logger.info(f"✅ Person {person['id']} authorized: {person['name']}")
+                    logger.info(f" Person {person['id']} authorized: {person['name']}")
                     await asyncio.to_thread(stats_service.log_event, "STAFF_AUTHORIZED", {
                         "person_id": person["id"],
                         "name": person["name"],
@@ -605,7 +652,7 @@ class ProcessingService:
                 # Check if this is a known stranger
                 is_known_stranger = False
                 for stranger in self.stranger_embeddings:
-                    if np.dot(embedding, stranger["embedding"]) > 0.85:  # High similarity
+                    if np.dot(clip_embedding, stranger["embedding"]) > 0.85:  # High similarity
                         is_known_stranger = True
                         person["is_returning_stranger"] = True
                         stranger["timestamp"] = current_time
@@ -613,7 +660,7 @@ class ProcessingService:
                 
                 if not is_known_stranger:
                     self.stranger_embeddings.append({
-                        "embedding": embedding,
+                        "embedding": clip_embedding,
                         "timestamp": current_time
                     })
                     # Keep only recent strangers
@@ -623,10 +670,11 @@ class ProcessingService:
                     ]
                 
                 # Determine label
+                display_id = person.get("display_id", "?")
                 if person.get("is_returning_stranger"):
-                    person["name"] = "Unauthorized (Returning)"
+                    person["name"] = f"Unknown {display_id} (Returning)"
                 else:
-                    person["name"] = "Unauthorized"
+                    person["name"] = f"Unknown {display_id}"
                 
                 # Generate alert for new unauthorized person
                 if previous_status is not False and not person.get("is_returning_stranger"):
@@ -672,13 +720,18 @@ class ProcessingService:
             center_y = (vehicle["bbox"][1] + vehicle["bbox"][3]) / 2
             zone = get_zone_for_position(center_x, center_y, frame.shape)
             
+            # Update speed tracking
+            speed = calculate_speed(vehicle["id"], vehicle["bbox"], current_time, self.vehicle_positions)
+            vehicle["speed"] = speed  # Store speed in the vehicle object for alerts
+
             # Use vehicle_rules.py for rule evaluation
             vehicle_payload = {
                 "id": vehicle["id"],
                 "class": vehicle["class"],
                 "conf": vehicle.get("confidence", 0) or vehicle.get("conf", 0),
                 "bbox": vehicle["bbox"],
-                "history": self.vehicle_positions.get(vehicle["id"], [])
+                "history": self.vehicle_positions.get(vehicle["id"], []),
+                "speed": speed
             }
 
             # evaluate_vehicle_rules returns a list of events
@@ -913,7 +966,7 @@ class ProcessingService:
                     person["is_aggressive"] = False
                 else:
                     color = (0, 0, 255) # Keep Red or use Pulsing Red if we had a timer
-                    label = f"⚠️ AGGRESSIVE ⚠️ {label}"
+                    label = f" AGGRESSIVE  {label}"
                     # Make box thicker
                     thickness = 4
                 
@@ -1048,7 +1101,7 @@ class ProcessingService:
             with open(stats_path, "w") as f:
                 json.dump(output, f, indent=4)
                 
-            logger.info("📊 System statistics saved")
+            logger.info(" System statistics saved")
         except Exception as e:
             logger.error(f"❌ Failed to save statistics: {e}")
 

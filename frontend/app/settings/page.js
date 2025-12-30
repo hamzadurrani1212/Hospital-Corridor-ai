@@ -195,21 +195,27 @@ function RegisterStaffModal({ onClose, onSuccess }) {
         role: "",
         department: "",
     });
-    const [imageFile, setImageFile] = useState(null);
-    const [imagePreview, setImagePreview] = useState(null);
+
+    // Image states
+    const [frontFile, setFrontFile] = useState(null);
+    const [frontPreview, setFrontPreview] = useState(null);
+    const [leftFile, setLeftFile] = useState(null);
+    const [leftPreview, setLeftPreview] = useState(null);
+    const [rightFile, setRightFile] = useState(null);
+    const [rightPreview, setRightPreview] = useState(null);
+
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState(null);
-    const fileInputRef = useRef(null);
 
     const roles = ["Doctor", "Nurse", "Security", "Administrator", "Technician", "Other"];
     const departments = ["Emergency", "ICU", "General Ward", "Pediatrics", "Surgery", "Radiology", "Laboratory", "Pharmacy", "Administration"];
 
-    const handleImageChange = (e) => {
+    const handleImageChange = (e, setFile, setPreview) => {
         const file = e.target.files?.[0];
         if (file) {
-            setImageFile(file);
+            setFile(file);
             const reader = new FileReader();
-            reader.onload = (e) => setImagePreview(e.target?.result);
+            reader.onload = (e) => setPreview(e.target?.result);
             reader.readAsDataURL(file);
         }
     };
@@ -217,8 +223,13 @@ function RegisterStaffModal({ onClose, onSuccess }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!formData.name || !formData.role || !formData.department || !imageFile) {
-            setError("Please fill all fields and upload an image");
+        if (!formData.name || !formData.role || !formData.department) {
+            setError("Please fill all text fields");
+            return;
+        }
+
+        if (!frontFile && !leftFile && !rightFile) {
+            setError("Please upload at least one image (Front view recommended)");
             return;
         }
 
@@ -228,7 +239,9 @@ function RegisterStaffModal({ onClose, onSuccess }) {
         try {
             await registerStaff({
                 ...formData,
-                image: imageFile,
+                frontImage: frontFile,
+                leftImage: leftFile,
+                rightImage: rightFile
             });
             onSuccess();
         } catch (err) {
@@ -238,10 +251,51 @@ function RegisterStaffModal({ onClose, onSuccess }) {
         }
     };
 
+    // Helper for upload box
+    const UploadBox = ({ label, file, preview, setFile, setPreview, id }) => (
+        <div className="flex-1 min-w-[120px]">
+            <label className="block text-xs font-medium text-slate-300 mb-2">
+                {label}
+            </label>
+            <div
+                className={`relative border-2 border-dashed rounded-xl h-32 flex flex-col items-center justify-center cursor-pointer transition-colors overflow-hidden ${preview
+                    ? "border-emerald-500 bg-emerald-500/5"
+                    : "border-slate-600 hover:border-slate-500 bg-slate-800/50"
+                    }`}
+            >
+                <input
+                    type="file"
+                    accept="image/*"
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                    onChange={(e) => handleImageChange(e, setFile, setPreview)}
+                />
+
+                {preview ? (
+                    <img
+                        src={preview}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                    />
+                ) : (
+                    <div className="text-center p-2 pointer-events-none">
+                        <FiUpload className="mx-auto text-slate-500 mb-1" size={20} />
+                        <span className="text-slate-500 text-xs">Upload</span>
+                    </div>
+                )}
+
+                {preview && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity pointer-events-none">
+                        <span className="text-white text-xs font-medium">Change</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+
     return (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
             <div
-                className="bg-card border border-slate-700 rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+                className="bg-card border border-slate-700 rounded-2xl p-6 w-full max-w-2xl mx-4 shadow-2xl max-h-[90vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -249,7 +303,7 @@ function RegisterStaffModal({ onClose, onSuccess }) {
                     <div>
                         <h2 className="text-xl font-bold text-white">Register New Staff</h2>
                         <p className="text-slate-400 text-sm mt-1">
-                            Add authorized hospital personnel to the system
+                            Add authorized hospital personnel with multi-angle face data
                         </p>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
@@ -263,97 +317,93 @@ function RegisterStaffModal({ onClose, onSuccess }) {
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    {/* Image Upload */}
+                <form onSubmit={handleSubmit} className="space-y-6">
+                    {/* Image Uploads */}
                     <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Staff Photo <span className="text-rose-400">*</span>
-                        </label>
-                        <div
-                            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${imagePreview
-                                ? "border-emerald-500 bg-emerald-500/5"
-                                : "border-slate-600 hover:border-slate-500"
-                                }`}
-                            onClick={() => fileInputRef.current?.click()}
-                        >
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                onChange={handleImageChange}
+                        <div className="mb-2">
+                            <label className="text-sm font-medium text-slate-300">
+                                Staff Photos <span className="text-rose-400">*</span>
+                            </label>
+                            <p className="text-xs text-slate-500">Upload 3 angles for better recognition accuracy</p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-4">
+                            <UploadBox
+                                label="Front View"
+                                file={frontFile}
+                                preview={frontPreview}
+                                setFile={setFrontFile}
+                                setPreview={setFrontPreview}
                             />
-                            {imagePreview ? (
-                                <div className="flex flex-col items-center gap-3">
-                                    <img
-                                        src={imagePreview}
-                                        alt="Preview"
-                                        className="w-24 h-24 object-cover rounded-full border-2 border-slate-600"
-                                    />
-                                    <span className="text-emerald-400 text-sm flex items-center gap-1">
-                                        <FiCheck size={16} /> Image selected
-                                    </span>
-                                </div>
-                            ) : (
-                                <>
-                                    <FiUpload className="mx-auto text-slate-500 mb-2" size={32} />
-                                    <p className="text-slate-400 text-sm">Click to upload staff photo</p>
-                                    <p className="text-slate-600 text-xs">JPG, PNG up to 10MB</p>
-                                </>
-                            )}
+                            <UploadBox
+                                label="Left Profile"
+                                file={leftFile}
+                                preview={leftPreview}
+                                setFile={setLeftFile}
+                                setPreview={setLeftPreview}
+                            />
+                            <UploadBox
+                                label="Right Profile"
+                                file={rightFile}
+                                preview={rightPreview}
+                                setFile={setRightFile}
+                                setPreview={setRightPreview}
+                            />
                         </div>
                     </div>
 
-                    {/* Name */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Full Name <span className="text-rose-400">*</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            placeholder="Enter staff name"
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
-                        />
-                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Name */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-300 mb-2">
+                                Full Name <span className="text-rose-400">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.name}
+                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                placeholder="Enter staff name"
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400"
+                            />
+                        </div>
 
-                    {/* Role */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Role <span className="text-rose-400">*</span>
-                        </label>
-                        <select
-                            value={formData.role}
-                            onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-cyan-400"
-                        >
-                            <option value="">Select role</option>
-                            {roles.map(role => (
-                                <option key={role} value={role}>{role}</option>
-                            ))}
-                        </select>
-                    </div>
+                        {/* Role */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-300 mb-2">
+                                Role <span className="text-rose-400">*</span>
+                            </label>
+                            <select
+                                value={formData.role}
+                                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-cyan-400"
+                            >
+                                <option value="">Select role</option>
+                                {roles.map(role => (
+                                    <option key={role} value={role}>{role}</option>
+                                ))}
+                            </select>
+                        </div>
 
-                    {/* Department */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-300 mb-2">
-                            Department <span className="text-rose-400">*</span>
-                        </label>
-                        <select
-                            value={formData.department}
-                            onChange={(e) => setFormData({ ...formData, department: e.target.value })}
-                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-cyan-400"
-                        >
-                            <option value="">Select department</option>
-                            {departments.map(dept => (
-                                <option key={dept} value={dept}>{dept}</option>
-                            ))}
-                        </select>
+                        {/* Department */}
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-slate-300 mb-2">
+                                Department <span className="text-rose-400">*</span>
+                            </label>
+                            <select
+                                value={formData.department}
+                                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-cyan-400"
+                            >
+                                <option value="">Select department</option>
+                                {departments.map(dept => (
+                                    <option key={dept} value={dept}>{dept}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
 
                     {/* Actions */}
-                    <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-800">
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
                         <button
                             type="button"
                             onClick={onClose}
@@ -364,7 +414,7 @@ function RegisterStaffModal({ onClose, onSuccess }) {
                         <button
                             type="submit"
                             disabled={submitting}
-                            className={`px-4 py-2 ${ABSOLUTE_BG_ACCENT} hover:bg-cyan-300 text-slate-900 font-semibold rounded-lg flex items-center gap-2 transition-colors ${submitting ? "opacity-50 cursor-not-allowed" : ""
+                            className={`px-6 py-2 ${ABSOLUTE_BG_ACCENT} hover:bg-cyan-300 text-slate-900 font-semibold rounded-lg flex items-center gap-2 transition-colors ${submitting ? "opacity-50 cursor-not-allowed" : ""
                                 }`}
                         >
                             {submitting ? (
@@ -373,7 +423,7 @@ function RegisterStaffModal({ onClose, onSuccess }) {
                                 </>
                             ) : (
                                 <>
-                                    <FiUserPlus size={18} /> Register Staff
+                                    <FiUserPlus size={18} /> Complete Registration
                                 </>
                             )}
                         </button>

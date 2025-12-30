@@ -8,6 +8,7 @@ import math
 # YOLO COCO / CUSTOM CLASS IDS
 # -----------------------------------
 VEHICLE_CLASSES = {
+    1: "bicycle",
     2: "car",
     3: "motorcycle",
     5: "bus",
@@ -152,6 +153,21 @@ def evaluate_vehicle_rules(
             "title": "Overspeed Vehicle",
             "description": f"{vehicle_type.title()} moving too fast",
             "speed": round(speed, 2),
+            "zone": zone,
+            "track_id": track_id,
+            "timestamp": time.time()
+        })
+        
+    # -----------------------------------
+    # RULE 5: General Vehicle Detection (Visibility)
+    # -----------------------------------
+    if not events: # If no violation, still alert that we saw a vehicle (per user request)
+        events.append({
+            "type": "VEHICLE_DETECTED",
+            "severity": "info",
+            "title": "Vehicle Detected",
+            "description": f"{vehicle_type.title()} detected in {zone}",
+            "vehicle_type": vehicle_type,
             "zone": zone,
             "track_id": track_id,
             "timestamp": time.time()
