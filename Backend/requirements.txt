@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+opencv-python
+ultralytics
+qdrant-client
+httpx
+pillow
+websockets
+sentence-transformers
+numpy
+python-dotenv
+insightface
+onnxruntime
+pydantic
+mediapipe>=0.10.1
+plyer
