@@ -808,7 +808,7 @@ class ProcessingService:
                 await self._generate_behavior_alert(frame, event)
                 
         except Exception as e:
-            logger.error(f"❌ Behavior analysis error: {e}")
+            logger.error(f" Behavior analysis error: {e}")
     
     # -----------------------------------
     # ALERT GENERATION
@@ -841,7 +841,7 @@ class ProcessingService:
         await broadcaster.broadcast_json(stored_alert)
         
         self.stats["alerts_generated"] += 1
-        logger.warning(f"🚨 Person Alert: {alert_type} - {person['name']}")
+        logger.warning(f" Person Alert: {alert_type} - {person['name']}")
     
     async def _generate_vehicle_alert(self, frame: np.ndarray, vehicle: Dict, rules_result: Dict) -> None:
         """Generate alert for vehicle-related events"""
@@ -870,7 +870,7 @@ class ProcessingService:
         await broadcaster.broadcast_json(stored_alert)
         
         self.stats["alerts_generated"] += 1
-        logger.warning(f"🚨 Vehicle Alert: {rules_result.get('type', 'UNKNOWN')}")
+        logger.warning(f" Vehicle Alert: {rules_result.get('type', 'UNKNOWN')}")
     
     async def _generate_behavior_alert(self, frame: np.ndarray, event: Dict) -> None:
         """Generate alert for behavior events"""
@@ -897,7 +897,7 @@ class ProcessingService:
         await broadcaster.broadcast_json(stored_alert)
         
         self.stats["alerts_generated"] += 1
-        logger.warning(f"🚨 Behavior Alert: {event.get('type', 'UNKNOWN')}")
+        logger.warning(f" Behavior Alert: {event.get('type', 'UNKNOWN')}")
     
     def _get_alert_title(self, alert_type: str) -> str:
         """Get human-readable alert title"""

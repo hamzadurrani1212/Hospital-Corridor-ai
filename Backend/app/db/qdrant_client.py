@@ -49,10 +49,6 @@ def init_qdrant():
     except Exception as e:
         print(f"[QDRANT INIT ERROR] {e}")
 
-# ============================
-# INSERT AUTHORIZED STAFF
-# ============================
-
 
 # ============================
 # INSERT AUTHORIZED STAFF

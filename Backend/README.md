@@ -2,7 +2,7 @@
 
 An AI-powered computer vision system designed to monitor hospital corridors for safety events such as falls, patient immobility, and overcrowding. The system utilizes **YOLOv8** for detection, **CLIP** for semantic embedding, and **Qdrant** for vector search, coupled with a specific **FastAPI** backend and a **Next.js** dashboard.
 
-## 🚀 Key Features
+##  Key Features
 
 - **Real-time Monitoring**: Processes video feeds from RTSP cameras or local webcams.
 - **Fall & Immobility Detection**:
@@ -12,7 +12,7 @@ An AI-powered computer vision system designed to monitor hospital corridors for 
 - **Semantic Search**: Search for specific people or events using text descriptions or reference images (powered by CLIP + Qdrant).
 - **Live Dashboard**: Web-based interface for viewing live alerts, system health, and camera feeds.
 
-## 🏗 System Architecture
+##  System Architecture
 
 The project is divided into three main components:
 
@@ -32,7 +32,7 @@ The project is divided into three main components:
 
 ---
 
-## 🛠️ Prerequisites
+##  Prerequisites
 
 - **Python 3.10+**
 - **Node.js 18+**
@@ -41,7 +41,7 @@ The project is divided into three main components:
 
 ---
 
-## 📦 Installation & Setup
+##  Installation & Setup
 
 ### 1. Backend Setup
 
@@ -53,7 +53,7 @@ cd c:\hospital-corridor-ai
 # .\myenv\Scripts\activate
 
 # Install dependencies
-pip install fastapi uvicorn opencv-python ultralytics qdrant-client httpx pillow websockets sentence-transformers
+pip install -r requirements.txt
 ```
 
 ### 2. Client Setup
@@ -83,7 +83,7 @@ npm run dev
 
 ---
 
-## ▶️ Usage Guide
+## ▶ Usage Guide
 
 To run the full system, you need three terminals:
 
@@ -108,13 +108,13 @@ python -m client.main
 
 ---
 
-## 🧠 AI Models Used
+##  AI Models Used
 
 - **YOLOv8** (Large/Medium): For robust person detection.
 - **CLIP** (OpenAI/ViT): For generating vector embeddings of detected people to enable semantic search.
 - **SimpleTracker**: A centroid-based tracker to maintain identity across frames (located in `client/tracker`).
 
-## ⚠️ Configuration
+##  Configuration
 
 - **Environment Variables**: Check `.env` files for Qdrant API keys and URLs.
 - **Thresholds**: Adjust `CROWD_THRESHOLD`, `NO_MOVE_SECONDS`, and `MOVEMENT_PIXEL_THRESHOLD` in `client/events/event_engine.py` to tune sensitivity.

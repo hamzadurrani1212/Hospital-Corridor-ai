@@ -1,16 +1,16 @@
 {
-    "timestamp": "2025-12-26T18:44:57.530398",
+    "timestamp": "2026-01-01T12:27:30.091889",
     "operational_stats": {
-        "persons_detected": 1,
+        "persons_detected": 0,
         "vehicles_detected": 0,
         "alerts_generated": 0,
         "authorized_count": 0,
-        "unauthorized_count": 1,
-        "crowd_count": 1,
+        "unauthorized_count": 0,
+        "crowd_count": 0,
         "crowd_status": "normal"
     },
     "performance": {
-        "avg_processing_time": 0.3312472653388977,
-        "frame_count": 156
+        "avg_processing_time": 0.318001667658488,
+        "frame_count": 4
     }
 }
